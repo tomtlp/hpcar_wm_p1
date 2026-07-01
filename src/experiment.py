@@ -112,7 +112,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--swat_dir", default=None, help="Directory containing real SWaT files")
     parser.add_argument(
         "--real_swat_task",
-        choices=["log_eval", "counterfactual", "hybrid"],
+        choices=["log_eval", "p1_log_eval", "counterfactual", "hybrid"],
         default="log_eval",
         help="Real SWaT offline evaluation task",
     )

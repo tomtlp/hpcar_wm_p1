@@ -86,15 +86,42 @@ dataset/SWat/
 - `swat_p1_calibration.json`
 - `swat_p1_calibration_report.csv`
 
-重要限制：真实 SWaT CSV/XLSX 是离线日志，恢复动作无法改变日志中已经记录好的未来轨迹。因此，真实数据模式分成三类，不能把 `log_eval` 解释成真实闭环恢复。
+重要限制：真实 SWaT CSV/XLSX 是离线日志，恢复动作无法改变日志中已经记录好的未来轨迹。因此，真实数据模式分成四类：推荐的 P1 专用日志诊断 `p1_log_eval`、旧版全厂标签参考诊断 `log_eval`、反事实恢复 `counterfactual`、真实校准混合仿真 `hybrid`。不能把任何离线日志指标解释成真实闭环恢复效果。
 
-### 真实 SWaT 日志诊断评估
+### 真实 SWaT P1 日志诊断评估（推荐）
+
+```powershell
+python -m src.experiment --config configs/default.yaml --mode real_swat --swat_dir dataset/SWat --real_swat_task p1_log_eval --quick
+```
+
+`p1_log_eval` 是真实 SWaT P1 模型的主日志评估入口。它只使用 P1 相关攻击窗口和标签，目标变量限定为 `LIT101`、`FIT101`、`MV101`、`P101`、`P102`。quick 模式下如果 attack list 的窗口超出已经加载的日志范围，会标记为 `out_of_loaded_range` 并从检测指标中排除，而不是截断后继续计算。
+
+阈值来自 normal 验证段校准，由 `configs/default.yaml` 中的 `swat.diagnosis.threshold_quantile`、`min_persistent_steps` 和 `p1_eval_only` 控制。这样真实 attack 日志只用于评估，不用于调阈值。
+
+主要输出：
+
+- `real_swat_p1_attack_windows.csv`
+- `real_swat_p1_labels.csv`
+- `real_swat_thresholds.json`
+- `real_swat_p1_timeseries.csv`
+- `real_swat_p1_log_eval_summary.csv`
+- `real_swat_p1_detection_by_window.csv`
+- `real_swat_p1_trust_detection_by_tag.csv`
+- `real_swat_p1_world_model_eval.csv`
+- `real_swat_p1_residual_thresholds.png`
+- `real_swat_p1_report.md`
+
+这些输出的 `evaluation_type` 为 `p1_offline_log_diagnosis`。
+
+### 旧版全厂标签日志评估（非 P1 主指标）
 
 ```powershell
 python -m src.experiment --config configs/default.yaml --mode real_swat --swat_dir dataset/SWat --real_swat_task log_eval --quick
 ```
 
-`log_eval` 只验证：
+`log_eval` 保留用于兼容早期实验和查看全厂标签下的参考结果。由于当前模型只覆盖 P1，它的全厂 label 指标不能作为 P1 模型正确性的主结论。
+
+`log_eval` 可查看：
 
 - 攻击检测；
 - 根因/信任掩码推断；
@@ -116,7 +143,7 @@ python -m src.experiment --config configs/default.yaml --mode real_swat --swat_d
 - `real_swat_residuals.png`
 - `real_swat_attack_windows_overlay.png`
 
-这些输出的 `evaluation_type` 为 `offline_log_diagnosis`。
+这些输出的 `evaluation_type` 为 `whole_plant_label_eval_for_p1_model_not_primary`。
 
 ### 真实 SWaT 反事实恢复评估
 
@@ -124,10 +151,16 @@ python -m src.experiment --config configs/default.yaml --mode real_swat --swat_d
 python -m src.experiment --config configs/default.yaml --mode real_swat --swat_dir dataset/SWat --real_swat_task counterfactual --quick
 ```
 
-`counterfactual` 从真实攻击窗口取攻击前上下文，用学习到的世界模型或校准后的 P1 动力学模型滚动预测候选恢复动作后果。它评估的是“模型中的反事实恢复决策”，不是对真实日志的闭环控制。
+`counterfactual` 从真实 P1 攻击窗口取攻击前上下文，用学习到的世界模型或校准后的 P1 动力学模型滚动预测候选恢复动作后果。它评估的是“模型中的反事实恢复决策”，不是对真实日志的闭环控制。已知 P1 攻击窗口会使用目标变量选择恢复动作，`PROPOSED` 不再默认退化为 `R0_KEEP_CURRENT`。
 
 主要输出：
 
+- `real_swat_p1_counterfactual_summary.csv`
+- `real_swat_p1_counterfactual_by_window.csv`
+- `real_swat_p1_counterfactual_action_timeline.csv`
+- `real_swat_p1_ablation_summary.csv`
+- `real_swat_p1_counterfactual_level_rollouts.png`
+- `real_swat_p1_counterfactual_actions.png`
 - `real_swat_counterfactual_summary.csv`
 - `real_swat_counterfactual_by_attack.csv`
 - `real_swat_counterfactual_action_timeline.csv`
@@ -142,22 +175,26 @@ python -m src.experiment --config configs/default.yaml --mode real_swat --swat_d
 python -m src.experiment --config configs/default.yaml --mode real_swat --swat_dir dataset/SWat --real_swat_task hybrid --quick
 ```
 
-`hybrid` 会先用真实 SWaT normal 数据校准 P1 简化仿真器，然后在这个真实统计特性约束下的仿真器里重放合成攻击并运行 B1-B5 恢复策略。这是用真实 normal 行为校准后的 simulation-in-the-loop 恢复验证。
+`hybrid` 会先用真实 SWaT normal 数据校准 P1 简化仿真器，然后在这个真实统计特性约束下的仿真器里重放合成攻击并运行 B1-B5 恢复策略。这是用真实 normal 行为校准后的 simulation-in-the-loop 恢复验证。校准后的液位和安全边界保持真实 `LIT101` 单位，并额外输出单位检查结果。
 
 主要输出：
 
+- `real_swat_hybrid_calibration_check.csv`
 - `real_swat_hybrid_summary.csv`
 - `real_swat_hybrid_metrics_by_method_attack.csv`
+- `real_swat_hybrid_ablation_summary.csv`
 - `real_swat_hybrid_level_trajectories.png`
 - `real_swat_hybrid_production_loss_bar.png`
 - `real_swat_hybrid_safety_violations_bar.png`
+- `real_swat_hybrid_unit_check.png`
 
-这些输出的 `evaluation_type` 为 `real_calibrated_simulation`。
+这些输出的 `evaluation_type` 为 `real_calibrated_simulation`，并包含 `B5_FULL`、`B5_NO_TRUST`、`B5_NO_ROOT_CAUSE`、`B5_NO_SHIELD` 四个 hybrid ablation。
 
 ## 真实 SWaT 结果如何解释
 
-- `log_eval`：验证诊断、trust mask、状态重构和预测能力；不要声称闭环恢复效果。
-- `counterfactual`：验证基于学习动力学的恢复动作选择是否合理；结果属于模型反事实 rollout。
+- `p1_log_eval`：P1 专用真实日志指标，验证诊断、trust mask、状态重构和预测能力；不要声称闭环恢复效果。
+- `log_eval`：旧版全厂标签参考指标，不作为 P1 模型主结果。
+- `counterfactual`：验证基于学习动力学和 P1 窗口上下文的恢复动作选择是否合理；结果属于模型反事实 rollout。
 - `hybrid`：验证恢复 controller 在“由 SWaT normal 数据校准的仿真器”中的表现；结果属于真实校准仿真。
 
 如果真实数据目录不存在、P1 列缺失或标签缺失，程序会尽量继续运行可运行部分；无法继续时会写出 `real_swat_error.txt`，不会影响 synthetic 模式。
@@ -272,7 +309,8 @@ reconstructed = trusted observation + untrusted physics estimate
 - `trust_mask_accuracy`：在有攻击真值时的 trust mask 准确率；
 - `trust_detection_precision`、`trust_detection_recall`、`trust_detection_f1`：按 compromised 变量检测的精确率、召回率和 F1；
 - `one_step_rmse`、`multi_step_rollout_rmse`、`attack_period_rmse`：世界模型预测误差；
-- `raw_observation_rmse`、`full_rollback_rmse`、`partial_rollback_rmse`、`trust_aware_reconstruction_rmse`：观测值、全回滚估计、局部回滚估计和信任感知重构的液位误差。
+- `raw_next_step_prediction_error`、`full_rollback_consistency_error`、`partial_rollback_consistency_error`、`trust_aware_future_consistency_error`：真实日志中的代理预测/一致性误差；
+- `raw_observation_rmse`、`full_rollback_rmse`、`partial_rollback_rmse`、`trust_aware_reconstruction_rmse`：旧版兼容列，含义对应上面的代理误差。
 
 ## 运行测试
 
@@ -287,7 +325,9 @@ pytest
 - 大幅 FDI 下 trust mask 是否能标记 `LIT101` 不可信；
 - 安全屏蔽器是否阻止低液位泵启动；
 - 规划器是否返回合法恢复动作；
-- quick 实验是否能端到端运行并写出 `results_summary.csv`。
+- quick 实验是否能端到端运行并写出 `results_summary.csv`；
+- P1 target tag 归一化、超出加载范围窗口排除、P1 标签生成和 normal 段阈值校准；
+- 真实校准混合仿真是否使用真实单位边界，并产生非零生产代理指标。
 
 ## 当前原型边界
 

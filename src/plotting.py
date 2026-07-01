@@ -188,6 +188,42 @@ def make_hybrid_plots(timeseries: pd.DataFrame, metrics: pd.DataFrame, output_di
         _bar(metrics, "safety_violation_duration", output / "real_swat_hybrid_safety_violations_bar.png")
 
 
+def make_p1_residual_threshold_plot(df: pd.DataFrame, thresholds: dict[str, float], output_dir: str | Path) -> None:
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    if df.empty or "abs_residual_LIT101" not in df:
+        return
+    x = df["t"] if "t" in df else range(len(df))
+    plt.figure(figsize=(11, 4.5))
+    plt.plot(x, df["abs_residual_LIT101"], label="abs residual", linewidth=1.0)
+    if "lit101_residual_ewma" in df:
+        plt.plot(x, df["lit101_residual_ewma"], label="EWMA", linewidth=1.0)
+    plt.axhline(thresholds.get("residual_abs_threshold", 0.0), color="#b23a48", linestyle="--", label="abs threshold")
+    plt.axhline(thresholds.get("residual_ewma_threshold", 0.0), color="#4f7cac", linestyle="--", label="EWMA threshold")
+    plt.xlabel("index")
+    plt.ylabel("LIT101 residual")
+    plt.legend(fontsize=8)
+    plt.tight_layout()
+    plt.savefig(output / "real_swat_p1_residual_thresholds.png", dpi=160)
+    plt.close()
+
+
+def make_hybrid_unit_check_plot(calibration_check: pd.DataFrame, output_dir: str | Path) -> None:
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    if calibration_check.empty:
+        return
+    keys = ["lit_min_normal", "safe_low", "target_low", "target_high", "safe_high", "lit_max_normal"]
+    values = [float(calibration_check.iloc[0].get(key, 0.0)) for key in keys]
+    plt.figure(figsize=(8, 4))
+    plt.plot(keys, values, marker="o", color="#4f7cac")
+    plt.xticks(rotation=25, ha="right")
+    plt.ylabel("LIT101 real units")
+    plt.tight_layout()
+    plt.savefig(output / "real_swat_hybrid_unit_check.png", dpi=160)
+    plt.close()
+
+
 def _shade_attacks(x: pd.Series | range, labels: pd.Series) -> None:
     arr = labels.fillna(0).to_numpy()
     xs = np.asarray(list(x))

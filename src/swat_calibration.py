@@ -31,6 +31,11 @@ def calibrate_p1_from_normal(
     safe_high = float(lit.quantile(float(q.get("normal_quantile_safe_high", 0.95))))
     target_low = float(lit.quantile(float(q.get("normal_quantile_target_low", 0.35))))
     target_high = float(lit.quantile(float(q.get("normal_quantile_target_high", 0.65))))
+    lit_min = float(lit.min())
+    lit_max = float(lit.max())
+    normal_range = max(1e-6, lit_max - lit_min)
+    margin_fraction = float(cfg.get("hybrid", {}).get("hazard_margin_fraction", 0.15))
+    margin = margin_fraction * normal_range
 
     mv_open_rate = float(normal_df.loc[normal_df.get("MV101_open_binary", 0) == 1, "FIT101"].mean())
     mv_closed_rate = float(normal_df.loc[normal_df.get("MV101_open_binary", 0) == 0, "FIT101"].mean())
@@ -79,6 +84,10 @@ def calibrate_p1_from_normal(
         "safe_high": safe_high,
         "target_low": target_low,
         "target_high": target_high,
+        "lit_min_normal": lit_min,
+        "lit_max_normal": lit_max,
+        "hazard_low": safe_low - margin,
+        "hazard_high": safe_high + margin,
         "mv101_fit_open_mean": mv_open_rate,
         "mv101_fit_closed_mean": mv_closed_rate,
         "warning": "weak_calibration" if (not np.isfinite(r2) or r2 < 0.2) else "",
@@ -109,8 +118,19 @@ def simulator_config_from_calibration(base_config: dict[str, Any], calibration: 
     cfg["target_min"] = float(calibration.get("target_low", cfg.get("target_min", 45.0)))
     cfg["target_max"] = float(calibration.get("target_high", cfg.get("target_max", 60.0)))
     cfg["initial_level"] = (cfg["target_min"] + cfg["target_max"]) / 2.0
-    cfg["inflow_rate_open"] = max(0.01, float(calibration.get("mv101_fit_open_mean", cfg.get("inflow_rate_open", 1.2))))
-    cfg["inflow_rate_closed"] = max(0.0, float(calibration.get("mv101_fit_closed_mean", cfg.get("inflow_rate_closed", 0.02))))
+    cfg["level_min"] = float(calibration.get("hazard_low", cfg["safe_min"] - 10.0))
+    cfg["level_max"] = float(calibration.get("hazard_high", cfg["safe_max"] + 10.0))
+    cfg["hard_min"] = cfg["level_min"]
+    cfg["hard_max"] = cfg["level_max"]
+    beta = calibration.get("coefficients", {})
+    fit_effect = abs(float(beta.get("beta_fit", 0.2))) if beta else 0.2
+    p101_effect = abs(float(beta.get("beta_p101", 0.25))) if beta else 0.25
+    p102_effect = abs(float(beta.get("beta_p102", p101_effect))) if beta else p101_effect
+    cfg["inflow_rate_open"] = max(0.01, fit_effect * float(calibration.get("mv101_fit_open_mean", 1.0)))
+    cfg["inflow_rate_closed"] = max(0.0, fit_effect * float(calibration.get("mv101_fit_closed_mean", 0.0)))
+    cfg["p101_outflow_rate"] = max(0.05, p101_effect)
+    cfg["p102_outflow_rate"] = max(0.05, p102_effect)
+    cfg["pump_empty_level"] = float(calibration.get("hazard_low", cfg["level_min"]))
     return cfg
 
 

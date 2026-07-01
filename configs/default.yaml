@@ -131,11 +131,15 @@ swat:
     cusum_threshold: 5.0
     residual_window: 20
     persistence_steps: 3
+    threshold_quantile: 0.995
+    min_persistent_steps: 5
+    p1_eval_only: true
   counterfactual:
     horizon: 60
     pre_attack_context: 60
   hybrid:
     seeds: [0, 1, 2, 3, 4]
+    hazard_margin_fraction: 0.15
 
 experiment:
   seeds: [0, 1, 2, 3, 4]

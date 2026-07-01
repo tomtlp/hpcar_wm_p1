@@ -8,7 +8,7 @@ from typing import Any
 from .causal_logic import diagnose, reconstruct_belief_state
 from .planner import HazardPrioritizedPlanner, PlannerDecision
 from .recovery_actions import RecoveryAction
-from .safety_shield import SafetyShield
+from .safety_shield import SafetyShield, ShieldDecision
 
 
 METHODS = [
@@ -41,10 +41,20 @@ def choose_action(
     attack_detected: bool,
 ) -> BaselineDecision | PlannerDecision:
     """Return a recovery action for one method."""
-    if method == "B5_PROPOSED":
+    if method in {"B5_PROPOSED", "B5_FULL"}:
         return proposed_planner.select_action(current_state, history)
-    if method == "B4_WORLD_MODEL_NO_TRUST":
+    if method in {"B4_WORLD_MODEL_NO_TRUST", "B5_NO_TRUST"}:
         return no_trust_planner.select_action(current_state, history)
+    if method == "B5_NO_SHIELD":
+        decision = proposed_planner.select_action(current_state, history)
+        return PlannerDecision(
+            action=decision.requested_action,
+            requested_action=decision.requested_action,
+            diagnostics=decision.diagnostics,
+            belief=decision.belief,
+            action_costs=decision.action_costs,
+            shield=ShieldDecision(decision.requested_action, decision.requested_action, False, "disabled_for_ablation"),
+        )
 
     diagnostics = diagnose(current_state, history, diagnosis_config)
     _, belief = reconstruct_belief_state(current_state, history, diagnostics, diagnosis_config)
@@ -55,6 +65,8 @@ def choose_action(
         requested = RecoveryAction.R5_P1_FALLBACK_CONTROL if attack_detected else RecoveryAction.R0_KEEP_CURRENT
     elif method == "B3_ANOMALY_PRIORITY_RECOVERY":
         requested = anomaly_priority_action(diagnostics, attack_detected)
+    elif method == "B5_NO_ROOT_CAUSE":
+        requested = RecoveryAction.R5_P1_FALLBACK_CONTROL if attack_detected else RecoveryAction.R0_KEEP_CURRENT
     else:
         raise ValueError(f"Unknown method: {method}")
 
