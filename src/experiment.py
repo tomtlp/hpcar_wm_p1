@@ -117,6 +117,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Real SWaT offline evaluation task",
     )
     parser.add_argument("--quick", action="store_true", help="Run a short CPU-friendly experiment")
+    parser.add_argument(
+        "--seeds",
+        default=None,
+        help="Comma-separated random seeds overriding config, e.g. 0,1,2,3,4",
+    )
     parser.add_argument("--output_dir", default=None, help="Override output directory")
     return parser
 
@@ -132,7 +137,24 @@ def apply_cli_overrides(config: dict[str, Any], args: argparse.Namespace) -> dic
         config["world_model"]["train_steps"] = min(int(config["world_model"].get("train_steps", 70)), 35)
         config["world_model"]["epochs"] = min(int(config["world_model"].get("epochs", 8)), 3)
         config["world_model"]["hidden_dim"] = min(int(config["world_model"].get("hidden_dim", 48)), 32)
+    if args.seeds:
+        config["experiment"]["seeds"] = parse_seed_list(args.seeds)
     return config
+
+
+def parse_seed_list(value: str) -> list[int]:
+    seeds: list[int] = []
+    for item in str(value).replace(";", ",").split(","):
+        text = item.strip()
+        if not text:
+            continue
+        try:
+            seeds.append(int(text))
+        except ValueError as exc:
+            raise ValueError(f"Invalid seed value {text!r}; use comma-separated integers such as 0,1,2") from exc
+    if not seeds:
+        raise ValueError("--seeds must contain at least one integer")
+    return seeds
 
 
 def maybe_load_csv(args: argparse.Namespace, config: dict[str, Any]) -> float | None:
