@@ -71,22 +71,29 @@ def action_cost(action: RecoveryAction) -> float:
     return ACTION_COSTS[action]
 
 
-def fallback_control(level_est: float, current: ControlCommand | None = None) -> ControlCommand:
+def fallback_control(
+    level_est: float,
+    current: ControlCommand | None = None,
+    low_open: float = 40.0,
+    high_close: float = 60.0,
+    pump_off: float = 25.0,
+    pump_on: float = 35.0,
+) -> ControlCommand:
     """Local level-based fallback rules using reconstructed level."""
     if current is None:
         current = ControlCommand(1, 1, 0, True, "FALLBACK")
     command = current.copy()
     command.plc_mode = "FALLBACK"
 
-    if level_est < 40.0:
+    if level_est < low_open:
         command.mv101_command = 1
-    elif level_est > 60.0:
+    elif level_est > high_close:
         command.mv101_command = 0
 
-    if level_est < 25.0:
+    if level_est < pump_off:
         command.p101_command = 0
         command.p102_command = 0
-    elif level_est > 35.0:
+    elif level_est > pump_on:
         command.p101_command = 1
         command.p102_command = 0
     return command
@@ -102,6 +109,12 @@ def apply_recovery_action(
     command = baseline_command.copy()
     trust_p101 = float(_state_value(current_state, "trust_P101", 1.0))
     trust_p102 = float(_state_value(current_state, "trust_P102", 1.0))
+    low_open = float(_state_value(current_state, "fallback_low_open", _state_value(current_state, "target_low", 40.0)))
+    high_close = float(_state_value(current_state, "fallback_high_close", _state_value(current_state, "target_high", 60.0)))
+    pump_off = float(_state_value(current_state, "fallback_pump_off", _state_value(current_state, "safe_low", 25.0)))
+    pump_on = float(_state_value(current_state, "fallback_pump_on", _state_value(current_state, "target_high", 35.0)))
+    pump_min_level = float(_state_value(current_state, "pump_empty_level", _state_value(current_state, "safe_low", 20.0)))
+    emergency_drain_level = float(_state_value(current_state, "emergency_drain_level", high_close + max(1.0, 0.25 * abs(high_close - low_open))))
 
     if action == RecoveryAction.R0_KEEP_CURRENT:
         return command
@@ -110,7 +123,7 @@ def apply_recovery_action(
         RecoveryAction.R1_ISOLATE_LIT101_USE_ESTIMATED_LEVEL,
         RecoveryAction.R10_SENSOR_ISOLATION_AND_FALLBACK,
     }:
-        return fallback_control(level_est, command)
+        return fallback_control(level_est, command, low_open, high_close, pump_off, pump_on)
 
     if action == RecoveryAction.R2_FREEZE_MV101_SAFE:
         if level_est > 60.0:
@@ -124,12 +137,12 @@ def apply_recovery_action(
         # In a pump-root-cause case, preserve safe production through P102.
         # When the level is already high, do not unnecessarily disable a healthy
         # P101: emergency drain can use both pumps.
-        if level_est > 75.0 and trust_p101 >= 0.5:
+        if level_est > emergency_drain_level and trust_p101 >= 0.5:
             command.p101_command = 1
             command.p102_command = 1 if trust_p102 >= 0.5 else 0
         else:
             command.p101_command = 0
-            command.p102_command = 1 if level_est >= 20.0 and trust_p102 >= 0.5 else 0
+            command.p102_command = 1 if level_est >= pump_min_level and trust_p102 >= 0.5 else 0
         command.plc_mode = "BACKUP_PUMP"
         return command
 
@@ -140,7 +153,7 @@ def apply_recovery_action(
         return command
 
     if action == RecoveryAction.R5_P1_FALLBACK_CONTROL:
-        return fallback_control(level_est, command)
+        return fallback_control(level_est, command, low_open, high_close, pump_off, pump_on)
 
     if action == RecoveryAction.R6_BLOCK_SCADA_REMOTE_WRITE:
         command.scada_write_enabled = False
@@ -157,9 +170,9 @@ def apply_recovery_action(
         )
 
     if action == RecoveryAction.R8_GRADUAL_RERAMP:
-        command = fallback_control(level_est, command)
+        command = fallback_control(level_est, command, low_open, high_close, pump_off, pump_on)
         command.plc_mode = "GRADUAL_RERAMP"
-        if 45.0 <= level_est <= 60.0:
+        if low_open <= level_est <= high_close:
             command.mv101_command = int(getattr(current_state, "mv101_state", command.mv101_command))
             command.p101_command = int(getattr(current_state, "p101_state", command.p101_command))
             command.p102_command = 0
@@ -167,8 +180,8 @@ def apply_recovery_action(
 
     if action == RecoveryAction.R9_EMERGENCY_DRAIN_BOTH_PUMPS:
         command.mv101_command = 0
-        command.p101_command = 1 if trust_p101 >= 0.5 and level_est >= 20.0 else 0
-        command.p102_command = 1 if trust_p102 >= 0.5 and level_est >= 20.0 else 0
+        command.p101_command = 1 if trust_p101 >= 0.5 and level_est >= pump_min_level else 0
+        command.p102_command = 1 if trust_p102 >= 0.5 and level_est >= pump_min_level else 0
         command.scada_write_enabled = False
         command.plc_mode = "EMERGENCY_DRAIN"
         if command.p101_command == 0 and command.p102_command == 0:

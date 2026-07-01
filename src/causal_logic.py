@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from .utils import clamp
 
@@ -526,29 +527,127 @@ def diagnose_real_swat_timeseries(
     out.loc[out["lit101_residual_cusum"] > threshold, "trust_LIT101"] = 0
     out.loc[out["lit101_replay_score"] >= 1.0, "trust_LIT101"] = 0
 
-    fit_high = float(cal.get("mv101_fit_closed_mean", 0.0)) + 0.5 * max(
-        1e-6,
-        float(cal.get("mv101_fit_open_mean", 1.0)) - float(cal.get("mv101_fit_closed_mean", 0.0)),
-    )
+    out = _add_real_actuator_suspicion(out, cal, cfg)
+    actuator_threshold = float(cfg.get("actuator_suspicion_trust_threshold", 0.8))
     out["trust_FIT101"] = 1
     out["trust_MV101"] = 1
-    if "MV101_open_binary" in out:
-        mv_suspicious = (out["MV101_open_binary"] == 0) & (out["FIT101"] > fit_high)
-        out.loc[mv_suspicious, ["trust_MV101", "trust_FIT101"]] = 0
+    out.loc[out["mv101_suspicion_score"] >= actuator_threshold, ["trust_MV101", "trust_FIT101"]] = 0
     out["trust_P101"] = 1
     out["trust_P102"] = 1
+    out.loc[out["p101_suspicion_score"] >= actuator_threshold, "trust_P101"] = 0
+    out.loc[out["p102_suspicion_score"] >= actuator_threshold, "trust_P102"] = 0
     out["trust_PLC1"] = 1
     # PLC proxy: normal hysteresis behavior is rough; mark only persistent strong contradictions.
     out.loc[(out["LIT101"] > out["LIT101"].quantile(0.95)) & (out.get("MV101_open_binary", 0) == 1), "trust_PLC1"] = 0
+    out.loc[out["plc1_suspicion_score"] >= actuator_threshold, "trust_PLC1"] = 0
     out["causal_score"] = (out["abs_residual_LIT101"] / max(float(cal.get("rmse", 1.0)), 1e-6)).clip(0, 10)
     out["logic_violation_score"] = (
-        (1 - out["trust_MV101"]) + (1 - out["trust_FIT101"]) + (1 - out["trust_PLC1"])
-    ) / 3.0
+        (1 - out["trust_MV101"]) + (1 - out["trust_FIT101"]) + (1 - out["trust_P101"]) + (1 - out["trust_P102"]) + (1 - out["trust_PLC1"])
+    ) / 5.0
     trust_cols = ["trust_LIT101", "trust_FIT101", "trust_MV101", "trust_P101", "trust_P102", "trust_PLC1"]
     out["attack_belief_score"] = (1 - out[trust_cols]).mean(axis=1).clip(0, 1)
-    out["inferred_root_cause"] = "none"
-    out.loc[out["trust_LIT101"] == 0, "inferred_root_cause"] = "LIT101_UNTRUSTED"
-    out.loc[out["trust_MV101"] == 0, "inferred_root_cause"] = "MV101_OR_FIT101_SUSPICIOUS"
     out["level_est"] = out["LIT101"]
     out.loc[out["trust_LIT101"] == 0, "level_est"] = out.loc[out["trust_LIT101"] == 0, "lit101_est"]
     return out
+
+
+def _add_real_actuator_suspicion(out: pd.DataFrame, cal: dict[str, Any], cfg: dict[str, Any]) -> pd.DataFrame:
+    out = out.copy()
+    persistent = int(cfg.get("actuator_persistence_steps", cfg.get("persistence_steps", 3)))
+    window = max(1, int(cfg.get("residual_window", 20)))
+    lit = pd.to_numeric(out.get("LIT101"), errors="coerce").ffill().bfill()
+    fit = pd.to_numeric(out.get("FIT101"), errors="coerce").ffill().bfill()
+    lit_delta = lit.diff().fillna(0.0)
+    rmse = max(float(cal.get("rmse", 1.0)), 1e-6)
+    lit_range = max(
+        1e-6,
+        float(cal.get("lit_max_normal", lit.max())) - float(cal.get("lit_min_normal", lit.min())),
+    )
+    slope_tol = max(float(cfg.get("actuator_slope_tolerance", 0.02 * rmse)), 0.0005 * lit_range)
+
+    open_mean = float(cal.get("mv101_fit_open_mean", fit.quantile(0.75)))
+    closed_mean = float(cal.get("mv101_fit_closed_mean", fit.quantile(0.25)))
+    separator = closed_mean + 0.5 * max(1e-6, open_mean - closed_mean)
+    mv = _numeric_column(out, "MV101_open_binary", default=0).round().clip(0, 1)
+    p101 = _numeric_column(out, "P101_on_binary", default=0).round().clip(0, 1)
+    p102 = _numeric_column(out, "P102_on_binary", default=0).round().clip(0, 1)
+
+    mv_open_low_fit_bool = (mv == 1) & (fit < separator)
+    mv_closed_high_fit_bool = (mv == 0) & (fit > separator)
+    mv_open_low_fit = mv_open_low_fit_bool.astype(float)
+    mv_closed_high_fit = mv_closed_high_fit_bool.astype(float)
+    mv_change = mv.diff().abs().fillna(0)
+    mv_run = mv_change.cumsum()
+    mv_run_length = mv.groupby(mv_run).cumcount() + 1
+    long_constant = (mv_run_length > max(window, persistent * 4)).astype(float)
+    fit_mismatch = (mv_open_low_fit_bool | mv_closed_high_fit_bool).astype(float)
+    out["mv101_fit_separator"] = separator
+    out["mv101_low_fit_when_open"] = mv_open_low_fit
+    out["mv101_high_fit_when_closed"] = mv_closed_high_fit
+    out["mv101_suspicion_score"] = (
+        fit_mismatch.rolling(persistent, min_periods=1).mean()
+        + 0.25 * long_constant * fit_mismatch.rolling(window, min_periods=1).max()
+    ).clip(0, 1)
+
+    no_pump = (p101 == 0) & (p102 == 0)
+    no_pump_median = _finite_median(lit_delta[no_pump], default=float(lit_delta.median()))
+    p101_on_median = _finite_median(lit_delta[(p101 == 1) & (p102 == 0)], default=no_pump_median - slope_tol)
+    p102_on_median = _finite_median(lit_delta[(p102 == 1) & (p101 == 0)], default=no_pump_median - slope_tol)
+    p101_no_drain = ((p101 == 1) & (lit_delta >= min(no_pump_median, p101_on_median) - slope_tol)).astype(float)
+    p102_no_drain = ((p102 == 1) & (lit_delta >= min(no_pump_median, p102_on_median) - slope_tol)).astype(float)
+    p101_off_drain_like = ((p101 == 0) & (p102 == 0) & (lit_delta < p101_on_median - slope_tol)).astype(float)
+    p102_off_drain_like = ((p102 == 0) & (p101 == 0) & (lit_delta < p102_on_median - slope_tol)).astype(float)
+    out["lit101_slope_delta"] = lit_delta
+    out["p101_expected_slope_on"] = p101_on_median
+    out["p102_expected_slope_on"] = p102_on_median
+    out["p101_suspicion_score"] = (
+        p101_no_drain.rolling(persistent, min_periods=1).mean()
+        + 0.5 * p101_off_drain_like.rolling(persistent, min_periods=1).mean()
+    ).clip(0, 1)
+    out["p102_suspicion_score"] = (
+        p102_no_drain.rolling(persistent, min_periods=1).mean()
+        + 0.5 * p102_off_drain_like.rolling(persistent, min_periods=1).mean()
+    ).clip(0, 1)
+
+    safe_low = float(cal.get("safe_low", lit.quantile(0.05)))
+    safe_high = float(cal.get("safe_high", lit.quantile(0.95)))
+    target_low = float(cal.get("target_low", lit.quantile(0.35)))
+    target_high = float(cal.get("target_high", lit.quantile(0.65)))
+    plc_unlikely = (
+        ((lit < target_low) & (mv == 0))
+        | ((lit > target_high) & (mv == 1))
+        | ((lit < safe_low) & ((p101 == 1) | (p102 == 1)))
+        | ((lit > safe_high) & ((p101 == 0) & (p102 == 0)))
+    ).astype(float)
+    out["plc1_suspicion_score"] = plc_unlikely.rolling(persistent, min_periods=1).mean().clip(0, 1)
+    lit_scale = max(3.0 * rmse, 1e-6)
+    out["lit101_suspicion_score"] = (
+        pd.to_numeric(out.get("abs_residual_LIT101"), errors="coerce").fillna(0) / lit_scale
+        + pd.to_numeric(out.get("lit101_replay_score"), errors="coerce").fillna(0)
+    ).clip(0, 1)
+
+    score_cols = {
+        "LIT101_UNTRUSTED": "lit101_suspicion_score",
+        "MV101_OR_FIT101_SUSPICIOUS": "mv101_suspicion_score",
+        "P101_SUSPICIOUS": "p101_suspicion_score",
+        "P102_SUSPICIOUS": "p102_suspicion_score",
+        "PLC1_SUSPICIOUS": "plc1_suspicion_score",
+    }
+    scores = pd.DataFrame({label: pd.to_numeric(out[col], errors="coerce").fillna(0.0) for label, col in score_cols.items()})
+    out["root_cause_confidence"] = scores.max(axis=1).clip(0, 1)
+    out["inferred_root_cause"] = scores.idxmax(axis=1)
+    out.loc[out["root_cause_confidence"] < float(cfg.get("root_cause_min_confidence", 0.35)), "inferred_root_cause"] = "none"
+    return out
+
+
+def _numeric_column(df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
+    if name in df:
+        return pd.to_numeric(df[name], errors="coerce").fillna(default)
+    return pd.Series(default, index=df.index, dtype=float)
+
+
+def _finite_median(series: pd.Series, default: float) -> float:
+    values = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    if values.empty:
+        return float(default)
+    return float(values.median())

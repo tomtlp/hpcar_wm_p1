@@ -105,10 +105,19 @@ python -m src.experiment --config configs/default.yaml --mode real_swat --swat_d
 - `real_swat_thresholds.json`
 - `real_swat_p1_timeseries.csv`
 - `real_swat_p1_log_eval_summary.csv`
+- `real_swat_p1_log_eval_summary_valid_windows.csv`
 - `real_swat_p1_detection_by_window.csv`
+- `real_swat_p1_detection_by_window_valid.csv`
 - `real_swat_p1_trust_detection_by_tag.csv`
+- `real_swat_p1_trust_detection_by_tag_valid.csv`
 - `real_swat_p1_world_model_eval.csv`
+- `real_swat_p1_attack_windows_valid.csv`
+- `real_swat_actuator_diagnosis_thresholds.json`
+- `real_swat_actuator_diagnosis_features.csv`
 - `real_swat_p1_residual_thresholds.png`
+- `real_swat_p1_valid_windows_overlay.png`
+- `real_swat_p1_trust_by_tag_heatmap.png`
+- `real_swat_p1_root_cause_scores.png`
 - `real_swat_p1_report.md`
 
 这些输出的 `evaluation_type` 为 `p1_offline_log_diagnosis`。
@@ -156,9 +165,15 @@ python -m src.experiment --config configs/default.yaml --mode real_swat --swat_d
 主要输出：
 
 - `real_swat_p1_counterfactual_summary.csv`
+- `real_swat_p1_counterfactual_summary_valid_windows.csv`
+- `real_swat_p1_counterfactual_candidate_scores.csv`
+- `real_swat_p1_counterfactual_rollout_timeseries.csv`
 - `real_swat_p1_counterfactual_by_window.csv`
 - `real_swat_p1_counterfactual_action_timeline.csv`
 - `real_swat_p1_ablation_summary.csv`
+- `real_swat_p1_ablation_summary_valid_windows.csv`
+- `real_swat_p1_counterfactual_candidate_scores.png`
+- `real_swat_p1_case_study_report.md`
 - `real_swat_p1_counterfactual_level_rollouts.png`
 - `real_swat_p1_counterfactual_actions.png`
 - `real_swat_counterfactual_summary.csv`
@@ -183,12 +198,21 @@ python -m src.experiment --config configs/default.yaml --mode real_swat --swat_d
 - `real_swat_hybrid_summary.csv`
 - `real_swat_hybrid_metrics_by_method_attack.csv`
 - `real_swat_hybrid_ablation_summary.csv`
+- `real_swat_hybrid_action_effect_debug.csv`
+- `real_swat_hybrid_action_effect_summary.csv`
+- `real_swat_hybrid_action_timeline_by_method.png`
+- `real_swat_hybrid_ablation_bar.png`
+- `real_swat_hybrid_stress_summary.csv`
+- `real_swat_hybrid_stress_metrics_by_method_attack.csv`
+- `real_swat_hybrid_stress_ablation_summary.csv`
+- `real_swat_hybrid_stress_level_trajectories.png`
+- `real_swat_hybrid_stress_bar.png`
 - `real_swat_hybrid_level_trajectories.png`
 - `real_swat_hybrid_production_loss_bar.png`
 - `real_swat_hybrid_safety_violations_bar.png`
 - `real_swat_hybrid_unit_check.png`
 
-这些输出的 `evaluation_type` 为 `real_calibrated_simulation`，并包含 `B5_FULL`、`B5_NO_TRUST`、`B5_NO_ROOT_CAUSE`、`B5_NO_SHIELD` 四个 hybrid ablation。
+这些输出的 `evaluation_type` 为 `real_calibrated_simulation`，并包含 `B5_FULL`、`B5_NO_TRUST`、`B5_NO_ROOT_CAUSE`、`B5_NO_SHIELD`、`B5_NO_WORLD_MODEL` 等 hybrid ablation。
 
 ## 真实 SWaT 结果如何解释
 
@@ -198,6 +222,18 @@ python -m src.experiment --config configs/default.yaml --mode real_swat --swat_d
 - `hybrid`：验证恢复 controller 在“由 SWaT normal 数据校准的仿真器”中的表现；结果属于真实校准仿真。
 
 如果真实数据目录不存在、P1 列缺失或标签缺失，程序会尽量继续运行可运行部分；无法继续时会写出 `real_swat_error.txt`，不会影响 synthetic 模式。
+
+## 第五轮修正：有效 P1 窗口、执行器诊断与真实校准恢复
+
+第五轮修正重点解决 quick 模式和真实校准恢复的可解释性问题：
+
+- quick 模式只评估和已加载日志真实重叠的 P1 攻击窗口；完全落在加载范围外的窗口会标记 `exclude_from_eval=True`，不会再被 nearest 对齐到最后一行。
+- `real_swat_p1_attack_windows_valid.csv` 和所有 `*_valid_windows.csv` 是 quick 模式下的主指标口径；full 模式才适合覆盖全部 P1 攻击窗口。
+- whole-plant `Normal/Attack` 标签仍可作为旧版参考，但 P1-only 模型的主结论来自 P1 窗口、P1 标签和 valid-window-only 指标。
+- `p1_log_eval` 只验证诊断、trust mask、状态重构和预测能力，不代表真实闭环恢复效果。
+- `counterfactual` 是模型中的反事实恢复评估，会输出候选动作评分和单窗口 case study；它解释“为什么选择这个动作”，但不声称改写真实日志。
+- `hybrid` 是真实 normal 数据校准后的 simulation-in-the-loop 恢复评估；新增 action-effect debug 和 stress scenarios，用来检查恢复动作是否真的改变执行器状态、流量、液位轨迹和安全/生产指标。
+- 执行器诊断新增 `mv101_suspicion_score`、`p101_suspicion_score`、`p102_suspicion_score`、`plc1_suspicion_score`、`inferred_root_cause` 和 `root_cause_confidence`，阈值来自 normal 段分位数校准；attack list target 只用于评估、case study 和 counterfactual 初始化，不作为在线诊断的直接标签。
 
 ## POMDP 简化建模
 

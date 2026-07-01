@@ -16,7 +16,16 @@ ATTACK_SCENARIOS = [
     "MV101_STUCK_OPEN",
     "MV101_STUCK_CLOSED",
     "P101_FORCED_OFF",
+    "P102_FORCED_OFF",
     "COMBINED_LIT101_FDI_MV101_OPEN",
+    "MV101_STUCK_OPEN_HIGH_LEVEL",
+    "LIT101_DRIFT_HIGH_LEVEL",
+    "LIT101_REPLAY_HIGH_LEVEL",
+    "P101_FORCED_OFF_HIGH_LEVEL",
+    "P102_FORCED_OFF_HIGH_LEVEL",
+    "COMBINED_LIT101_REPLAY_MV101_OPEN",
+    "MV101_STUCK_OPEN_P102_UNAVAILABLE",
+    "DELAYED_DETECTION_5_STEPS",
 ]
 
 
@@ -28,6 +37,7 @@ class AttackConfig:
     lit101_drift_rate: float = 0.35
     replay_window: int = 20
     p101_forced_state: int = 0
+    p102_forced_state: int = 0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "AttackConfig":
@@ -64,12 +74,22 @@ class P1Attack:
         if not self.is_active(t):
             return int(mv101_state), int(p101_state), int(p102_state)
 
-        if self.name == "MV101_STUCK_OPEN":
+        if self.name in {
+            "MV101_STUCK_OPEN",
+            "MV101_STUCK_OPEN_HIGH_LEVEL",
+            "MV101_STUCK_OPEN_P102_UNAVAILABLE",
+            "COMBINED_LIT101_REPLAY_MV101_OPEN",
+            "DELAYED_DETECTION_5_STEPS",
+        }:
             mv101_state = 1
         elif self.name == "MV101_STUCK_CLOSED":
             mv101_state = 0
-        elif self.name == "P101_FORCED_OFF":
+        elif self.name in {"P101_FORCED_OFF", "P101_FORCED_OFF_HIGH_LEVEL"}:
             p101_state = int(self.config.p101_forced_state)
+        elif self.name in {"P102_FORCED_OFF", "P102_FORCED_OFF_HIGH_LEVEL"}:
+            p102_state = int(self.config.p102_forced_state)
+        elif self.name == "MV101_STUCK_OPEN_P102_UNAVAILABLE":
+            p102_state = int(self.config.p102_forced_state)
         elif self.name == "COMBINED_LIT101_FDI_MV101_OPEN":
             mv101_state = 1
         return int(mv101_state), int(p101_state), int(p102_state)
@@ -85,24 +105,45 @@ class P1Attack:
         elapsed = max(0, attacked.t - self.config.start_step)
         if self.name == "LIT101_FDI":
             attacked.lit101_obs = normal_lit + self.config.lit101_fdi_offset
-        elif self.name == "LIT101_DRIFT":
+        elif self.name in {"LIT101_DRIFT", "LIT101_DRIFT_HIGH_LEVEL"}:
             attacked.lit101_obs = normal_lit + self.config.lit101_drift_rate * elapsed
-        elif self.name == "LIT101_REPLAY":
+        elif self.name in {"LIT101_REPLAY", "LIT101_REPLAY_HIGH_LEVEL", "COMBINED_LIT101_REPLAY_MV101_OPEN"}:
             attacked.lit101_obs = self._replay_value(elapsed, normal_lit)
         elif self.name == "COMBINED_LIT101_FDI_MV101_OPEN":
             attacked.lit101_obs = normal_lit + self.config.lit101_fdi_offset
+        elif self.name == "DELAYED_DETECTION_5_STEPS":
+            attacked.lit101_obs = normal_lit + 0.5 * self.config.lit101_fdi_offset
         return attacked
 
     def ground_truth_trust(self, t: int) -> dict[str, int]:
         trust = {"LIT101": 1, "FIT101": 1, "MV101": 1, "P101": 1, "P102": 1, "PLC1": 1}
         if not self.is_active(t):
             return trust
-        if self.name in {"LIT101_FDI", "LIT101_DRIFT", "LIT101_REPLAY", "COMBINED_LIT101_FDI_MV101_OPEN"}:
+        if self.name in {
+            "LIT101_FDI",
+            "LIT101_DRIFT",
+            "LIT101_REPLAY",
+            "LIT101_DRIFT_HIGH_LEVEL",
+            "LIT101_REPLAY_HIGH_LEVEL",
+            "COMBINED_LIT101_FDI_MV101_OPEN",
+            "COMBINED_LIT101_REPLAY_MV101_OPEN",
+            "DELAYED_DETECTION_5_STEPS",
+        }:
             trust["LIT101"] = 0
-        if self.name in {"MV101_STUCK_OPEN", "MV101_STUCK_CLOSED", "COMBINED_LIT101_FDI_MV101_OPEN"}:
+        if self.name in {
+            "MV101_STUCK_OPEN",
+            "MV101_STUCK_CLOSED",
+            "MV101_STUCK_OPEN_HIGH_LEVEL",
+            "MV101_STUCK_OPEN_P102_UNAVAILABLE",
+            "COMBINED_LIT101_FDI_MV101_OPEN",
+            "COMBINED_LIT101_REPLAY_MV101_OPEN",
+            "DELAYED_DETECTION_5_STEPS",
+        }:
             trust["MV101"] = 0
-        if self.name == "P101_FORCED_OFF":
+        if self.name in {"P101_FORCED_OFF", "P101_FORCED_OFF_HIGH_LEVEL"}:
             trust["P101"] = 0
+        if self.name in {"P102_FORCED_OFF", "P102_FORCED_OFF_HIGH_LEVEL", "MV101_STUCK_OPEN_P102_UNAVAILABLE"}:
+            trust["P102"] = 0
         return trust
 
     def _remember_replay_value(self, value: float) -> None:

@@ -87,15 +87,17 @@ shield:
 world_model:
   type: "gru"
   enabled: true
-  hidden_dim: 48
+  device: "auto"
+  inference_device: "cpu"
+  hidden_dim: 64
   hidden_size: 64
   learning_rate: 0.001
-  epochs: 8
+  epochs: 10
   quick_epochs: 3
-  batch_size: 64
+  batch_size: 512
   sequence_length: 20
-  train_rollouts: 60
-  train_steps: 70
+  train_rollouts: 100
+  train_steps: 90
   validation_fraction: 0.2
   rollout_horizon: 5
 
@@ -142,8 +144,8 @@ swat:
     hazard_margin_fraction: 0.15
 
 experiment:
-  seeds: [0, 1, 2, 3, 4]
-  steps: 180
+  seeds: [0]
+  steps: 120
   quick_steps: 70
   consecutive_safe_steps: 5
   methods:

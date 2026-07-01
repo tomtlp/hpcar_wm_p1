@@ -111,18 +111,19 @@ class PhysicsWorldModel:
 class _MLP:
     """Lazy Torch MLP wrapper so import failures do not break the experiment."""
 
-    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int, device: Any = "cpu"):
         import torch
         import torch.nn as nn
 
         self.torch = torch
+        self.device = torch.device(device)
         self.model = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, output_dim),
-        )
+        ).to(self.device)
 
 
 class ActionConditionedWorldModel:
@@ -135,6 +136,7 @@ class ActionConditionedWorldModel:
         self.x_scaler: StandardScaler | None = None
         self.y_scaler: StandardScaler | None = None
         self.trained = False
+        self.device = "cpu"
         self.metrics = {"one_step_rmse": np.nan, "multi_step_rollout_rmse": np.nan}
 
     def train(
@@ -171,21 +173,28 @@ class ActionConditionedWorldModel:
             x_train_s = self.x_scaler.transform(x_train).astype(np.float32)
             y_train_s = self.y_scaler.transform(y_train).astype(np.float32)
             x_val_s = self.x_scaler.transform(x_val).astype(np.float32)
+            requested_device = str(self.config.get("device", "auto"))
+            if requested_device == "auto":
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            else:
+                device = torch.device(requested_device)
+            self.device = str(device)
 
             self.net = _MLP(
                 input_dim=x.shape[1],
                 hidden_dim=int(self.config.get("hidden_dim", 48)),
                 output_dim=y.shape[1],
+                device=device,
             )
             optimizer = torch.optim.Adam(self.net.model.parameters(), lr=float(self.config.get("learning_rate", 1e-3)))
             loss_fn = nn.MSELoss()
             batch_size = int(self.config.get("batch_size", 64))
             epochs = int(self.config.get("epochs", 8))
 
-            tensor_x = torch.tensor(x_train_s)
-            tensor_y = torch.tensor(y_train_s)
+            tensor_x = torch.tensor(x_train_s, device=device)
+            tensor_y = torch.tensor(y_train_s, device=device)
             for _ in range(max(1, epochs)):
-                permutation = torch.randperm(tensor_x.shape[0])
+                permutation = torch.randperm(tensor_x.shape[0], device=device)
                 for start in range(0, tensor_x.shape[0], batch_size):
                     idx = permutation[start : start + batch_size]
                     optimizer.zero_grad()
@@ -194,7 +203,7 @@ class ActionConditionedWorldModel:
                     optimizer.step()
 
             with torch.no_grad():
-                val_pred_s = self.net.model(torch.tensor(x_val_s)).numpy()
+                val_pred_s = self.net.model(torch.tensor(x_val_s, device=device)).detach().cpu().numpy()
             val_pred = self.y_scaler.inverse_transform(val_pred_s)
             one_step_mse = mean_squared_error(y_val[:, :2], val_pred[:, :2])
             one_step = float(np.sqrt(one_step_mse))
@@ -204,6 +213,12 @@ class ActionConditionedWorldModel:
                 "multi_step_rollout_rmse": float(one_step * np.sqrt(horizon)),
             }
             self.trained = True
+            inference_device = str(self.config.get("inference_device", "cpu"))
+            if inference_device == "auto":
+                inference_device = str(device)
+            inference_torch_device = torch.device(inference_device)
+            self.net.model.to(inference_torch_device)
+            self.net.device = inference_torch_device
             if output_path is not None:
                 output = Path(output_path)
                 output.parent.mkdir(parents=True, exist_ok=True)
@@ -214,11 +229,14 @@ class ActionConditionedWorldModel:
                         "y_scaler": self.y_scaler,
                         "config": self.config,
                         "metrics": self.metrics,
+                        "training_device": self.device,
+                        "inference_device": str(self.net.device),
                     },
                     output,
                 )
             print(
                 "[world_model] trained MLP: "
+                f"training_device={self.device}, inference_device={self.net.device}, "
                 f"one_step_rmse={self.metrics['one_step_rmse']:.3f}, "
                 f"multi_step_rmse={self.metrics['multi_step_rollout_rmse']:.3f}"
             )
@@ -237,8 +255,9 @@ class ActionConditionedWorldModel:
 
             x = make_model_input(belief, action).reshape(1, -1)
             x_s = self.x_scaler.transform(x).astype(np.float32)
+            device = getattr(self.net, "device", torch.device(self.device))
             with torch.no_grad():
-                y_s = self.net.model(torch.tensor(x_s)).numpy()
+                y_s = self.net.model(torch.tensor(x_s, device=device)).detach().cpu().numpy()
             y = self.y_scaler.inverse_transform(y_s)[0]
             return WorldPrediction(
                 level_est_next=clamp(float(y[0]), 0.0, 100.0),

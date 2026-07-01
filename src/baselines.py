@@ -67,6 +67,15 @@ def choose_action(
         requested = anomaly_priority_action(diagnostics, attack_detected)
     elif method == "B5_NO_ROOT_CAUSE":
         requested = RecoveryAction.R5_P1_FALLBACK_CONTROL if attack_detected else RecoveryAction.R0_KEEP_CURRENT
+    elif method == "B5_NO_WORLD_MODEL":
+        if not attack_detected:
+            requested = RecoveryAction.R0_KEEP_CURRENT
+        elif belief.get("level_est", 0.0) > float(diagnosis_config.get("safe_max", 80.0)):
+            requested = RecoveryAction.R9_EMERGENCY_DRAIN_BOTH_PUMPS
+        elif belief.get("level_est", 0.0) < float(diagnosis_config.get("safe_min", 20.0)):
+            requested = RecoveryAction.R7_LOCAL_SAFE_SHUTDOWN
+        else:
+            requested = anomaly_priority_action(diagnostics, attack_detected)
     else:
         raise ValueError(f"Unknown method: {method}")
 

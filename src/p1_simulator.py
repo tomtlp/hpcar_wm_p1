@@ -214,6 +214,7 @@ class P1Simulator:
         info = {
             "inflow": inflow,
             "outflow": outflow,
+            "level_delta": level_next - self.state.level_true,
             "production": production,
             "pump_empty_run": pump_empty,
             "hard_safety_violation": hard_violation,

@@ -117,6 +117,10 @@ def simulator_config_from_calibration(base_config: dict[str, Any], calibration: 
     cfg["safe_max"] = float(calibration.get("safe_high", cfg.get("safe_max", 80.0)))
     cfg["target_min"] = float(calibration.get("target_low", cfg.get("target_min", 45.0)))
     cfg["target_max"] = float(calibration.get("target_high", cfg.get("target_max", 60.0)))
+    cfg["baseline_low_open"] = cfg["target_min"]
+    cfg["baseline_high_close"] = cfg["target_max"]
+    cfg["pump_off_level"] = cfg["target_min"]
+    cfg["pump_on_level"] = cfg["target_max"]
     cfg["initial_level"] = (cfg["target_min"] + cfg["target_max"]) / 2.0
     cfg["level_min"] = float(calibration.get("hazard_low", cfg["safe_min"] - 10.0))
     cfg["level_max"] = float(calibration.get("hazard_high", cfg["safe_max"] + 10.0))

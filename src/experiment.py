@@ -264,7 +264,8 @@ def run_single(
 ) -> list[dict[str, Any]]:
     set_seed(seed)
     sim = P1Simulator(sim_cfg, seed=seed)
-    state = sim.reset(seed=seed, initial_level=initial_level)
+    scenario_initial_level = _initial_level_for_attack(attack_name, sim_cfg, initial_level)
+    state = sim.reset(seed=seed, initial_level=scenario_initial_level)
     attack = create_attack(attack_name, attack_cfg)
     proposed_planner = HazardPrioritizedPlanner(
         world_model=world_model,
@@ -286,7 +287,8 @@ def run_single(
 
     for _ in range(steps):
         current = state.to_dict()
-        attack_detected = attack_name != "normal" and int(current["t"]) >= int(attack_cfg.start_step)
+        detection_delay = 5 if attack_name == "DELAYED_DETECTION_5_STEPS" else 0
+        attack_detected = attack_name != "normal" and int(current["t"]) >= int(attack_cfg.start_step) + detection_delay
         decision = choose_action(
             method=method,
             current_state=current,
@@ -298,7 +300,7 @@ def run_single(
             attack_detected=attack_detected,
         )
         action = decision.action
-        belief = decision.belief
+        belief = _belief_with_control_context(decision.belief, sim_cfg)
         diagnostics = decision.diagnostics
         next_state, info = sim.step(action, attack, level_est=belief.get("level_est"), recovery_context=belief)
         gt_trust = attack.ground_truth_trust(next_state.t)
@@ -327,6 +329,30 @@ def run_single(
     return rows
 
 
+def _belief_with_control_context(belief: dict[str, float], sim_cfg: dict[str, Any]) -> dict[str, float]:
+    out = dict(belief)
+    out.setdefault("target_low", float(sim_cfg.get("target_min", 45.0)))
+    out.setdefault("target_high", float(sim_cfg.get("target_max", 60.0)))
+    out.setdefault("safe_low", float(sim_cfg.get("safe_min", 20.0)))
+    out.setdefault("safe_high", float(sim_cfg.get("safe_max", 80.0)))
+    out.setdefault("fallback_low_open", float(sim_cfg.get("baseline_low_open", out["target_low"])))
+    out.setdefault("fallback_high_close", float(sim_cfg.get("baseline_high_close", out["target_high"])))
+    out.setdefault("fallback_pump_off", float(sim_cfg.get("pump_off_level", out["safe_low"])))
+    out.setdefault("fallback_pump_on", float(sim_cfg.get("pump_on_level", out["target_high"])))
+    out.setdefault("pump_empty_level", float(sim_cfg.get("pump_empty_level", out["safe_low"])))
+    out.setdefault("emergency_drain_level", float(sim_cfg.get("safe_max", out["safe_high"])))
+    return out
+
+
+def _initial_level_for_attack(attack_name: str, sim_cfg: dict[str, Any], default: float | None) -> float | None:
+    if "HIGH_LEVEL" not in attack_name and attack_name not in {"COMBINED_LIT101_REPLAY_MV101_OPEN", "MV101_STUCK_OPEN_P102_UNAVAILABLE"}:
+        return default
+    safe_low = float(sim_cfg.get("safe_min", sim_cfg.get("target_min", 20.0)))
+    safe_high = float(sim_cfg.get("safe_max", sim_cfg.get("target_max", 80.0)))
+    normal_range = max(1e-6, safe_high - safe_low)
+    return safe_high - 0.05 * normal_range
+
+
 def make_row(
     method: str,
     attack_name: str,
@@ -351,6 +377,8 @@ def make_row(
         "seed": seed,
         "attack_start": attack_start,
         "action": action.value,
+        "selected_action": getattr(decision, "requested_action", action).value,
+        "shielded_action": action.value,
         "requested_action": getattr(decision, "requested_action", action).value,
         "shield_intervened": int(shield_intervened),
         "shield_reason": shield_reason,
@@ -364,10 +392,20 @@ def make_row(
         "logic_violation_score": getattr(diagnostics, "logic_violation_score", np.nan),
         "mass_balance_level": getattr(diagnostics, "mass_balance_level", np.nan),
         "root_causes": "|".join(getattr(diagnostics, "root_causes", [])),
+        "command_MV101": state.get("mv101_command", np.nan),
+        "actual_MV101": state.get("mv101_state", np.nan),
+        "command_P101": state.get("p101_command", np.nan),
+        "actual_P101": state.get("p101_state", np.nan),
+        "command_P102": state.get("p102_command", np.nan),
+        "actual_P102": state.get("p102_state", np.nan),
+        "LIT101_level": state.get("level_true", np.nan),
     }
     for key in ["LIT101", "FIT101", "MV101", "P101", "P102", "PLC1"]:
         row[f"trust_{key}"] = int(diagnostics.trust_mask.get(key, 1))
         row[f"gt_trust_{key}"] = int(gt_trust.get(key, 1))
+    row["actuator_MV101_trusted"] = row["trust_MV101"]
+    row["actuator_P101_trusted"] = row["trust_P101"]
+    row["actuator_P102_trusted"] = row["trust_P102"]
     for key, value in diagnostics.residuals.items():
         row[f"residual_{key}"] = value
     return row
