@@ -1,0 +1,149 @@
+"""Attack-list parsing and label-transition window inference for SWaT."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from .swat_loader import read_swat_table
+
+
+def _find_col(columns: list[str], keywords: list[str]) -> str | None:
+    lowered = {col.lower().replace(" ", "").replace("_", ""): col for col in columns}
+    for key in keywords:
+        key_norm = key.lower().replace(" ", "").replace("_", "")
+        for norm, original in lowered.items():
+            if key_norm in norm:
+                return original
+    return None
+
+
+def parse_attack_windows(
+    attack_list_file: str | Path | None,
+    attack_df: pd.DataFrame | None,
+    output_dir: str | Path,
+) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    if attack_list_file and Path(attack_list_file).exists():
+        try:
+            table = read_swat_table(attack_list_file)
+            if all(isinstance(c, int) for c in table.columns) and not table.empty:
+                table = table.copy()
+                table.columns = [str(v).strip() for v in table.iloc[0].tolist()]
+                table = table.iloc[1:].reset_index(drop=True)
+            cols = [str(c) for c in table.columns]
+            start_col = _find_col(cols, ["starttime", "attackstart", "start"])
+            end_col = _find_col(cols, ["endtime", "attackend", "end"])
+            target_col = _find_col(cols, ["target", "attackpoint", "affectedtag", "tag"])
+            desc_col = _find_col(cols, ["description", "attacktype", "type"])
+            id_col = _find_col(cols, ["attacknumber", "attackno", "number", "id"])
+            for idx, row in table.iterrows():
+                rows.append(
+                    {
+                        "attack_id": row.get(id_col, idx + 1) if id_col else idx + 1,
+                        "start_time": row.get(start_col, pd.NA) if start_col else pd.NA,
+                        "end_time": row.get(end_col, pd.NA) if end_col else pd.NA,
+                        "start_index": pd.NA,
+                        "end_index": pd.NA,
+                        "target_tags": row.get(target_col, "unknown") if target_col else "unknown",
+                        "description": row.get(desc_col, "") if desc_col else "",
+                        "source_file": str(attack_list_file),
+                        "alignment_status": "parsed_unaligned",
+                    }
+                )
+        except Exception as exc:
+            rows.append(
+                {
+                    "attack_id": "parse_error",
+                    "start_time": pd.NA,
+                    "end_time": pd.NA,
+                    "start_index": pd.NA,
+                    "end_index": pd.NA,
+                    "target_tags": "unknown",
+                    "description": f"Could not parse attack list: {exc}",
+                    "source_file": str(attack_list_file),
+                    "alignment_status": "error",
+                }
+            )
+        if rows and attack_df is not None and "timestamp" in attack_df:
+            _align_rows_to_timestamps(rows, attack_df)
+
+    if not rows and attack_df is not None and "label" in attack_df:
+        labels = pd.to_numeric(attack_df["label"], errors="coerce")
+        is_attack = labels == 1
+        values = is_attack.to_numpy()
+        idx = 0
+        attack_id = 1
+        while idx < len(values):
+            if not values[idx]:
+                idx += 1
+                continue
+            start = idx
+            while idx < len(values) and values[idx]:
+                idx += 1
+            end = idx - 1
+            rows.append(
+                {
+                    "attack_id": attack_id,
+                    "start_time": attack_df["timestamp"].iloc[start] if "timestamp" in attack_df else pd.NA,
+                    "end_time": attack_df["timestamp"].iloc[end] if "timestamp" in attack_df else pd.NA,
+                    "start_index": int(start),
+                    "end_index": int(end),
+                    "target_tags": "unknown",
+                    "description": "inferred_from_label_transition",
+                    "source_file": "label_column",
+                    "alignment_status": "label_aligned",
+                }
+            )
+            attack_id += 1
+
+    if not rows:
+        rows.append(
+            {
+                "attack_id": "unlabeled_sequence",
+                "start_time": pd.NA,
+                "end_time": pd.NA,
+                "start_index": 0 if attack_df is not None and len(attack_df) else pd.NA,
+                "end_index": len(attack_df) - 1 if attack_df is not None and len(attack_df) else pd.NA,
+                "target_tags": "unknown",
+                "description": "no_attack_list_or_label",
+                "source_file": "",
+                "alignment_status": "unlabeled",
+            }
+        )
+
+    window_df = pd.DataFrame(rows)
+    window_df.to_csv(Path(output_dir) / "swat_attack_windows.csv", index=False)
+    return window_df
+
+
+def _align_rows_to_timestamps(rows: list[dict[str, Any]], attack_df: pd.DataFrame) -> None:
+    timestamps = pd.to_datetime(attack_df["timestamp"], errors="coerce")
+    if timestamps.notna().sum() == 0:
+        return
+    for row in rows:
+        start = _parse_window_time(row.get("start_time"), None)
+        end = _parse_window_time(row.get("end_time"), start)
+        if start is None or pd.isna(start):
+            continue
+        start_idx = int((timestamps - start).abs().idxmin())
+        row["start_index"] = start_idx
+        if end is not None and not pd.isna(end):
+            end_idx = int((timestamps - end).abs().idxmin())
+            row["end_index"] = max(start_idx, end_idx)
+        row["alignment_status"] = "timestamp_nearest"
+
+
+def _parse_window_time(value: Any, date_anchor: Any) -> Any:
+    if pd.isna(value):
+        return pd.NaT
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.notna(parsed):
+        return parsed
+    if date_anchor is not None and pd.notna(date_anchor):
+        combined = f"{pd.Timestamp(date_anchor).date()} {value}"
+        return pd.to_datetime(combined, errors="coerce")
+    return pd.NaT

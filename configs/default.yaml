@@ -1,0 +1,159 @@
+project:
+  name: "Hazard-Prioritized Causal-POMDP Actionable Recovery World Model for SWaT P1"
+  output_dir: "outputs"
+
+simulator:
+  dt: 1.0
+  tank_area: 1.0
+  level_min: 0.0
+  level_max: 100.0
+  initial_level: 52.0
+  inflow_rate_open: 1.2
+  inflow_rate_closed: 0.02
+  p101_outflow_rate: 0.72
+  p102_outflow_rate: 0.66
+  process_noise_std: 0.035
+  sensor_noise_std: 0.12
+  safe_min: 20.0
+  safe_max: 80.0
+  hard_min: 10.0
+  hard_max: 90.0
+  target_min: 45.0
+  target_max: 60.0
+  pump_empty_level: 15.0
+  baseline_low_open: 45.0
+  baseline_high_close: 60.0
+  pump_on_level: 35.0
+  pump_off_level: 25.0
+
+attacks:
+  start_step: 25
+  end_step: null
+  lit101_fdi_offset: 24.0
+  lit101_drift_rate: 0.35
+  replay_window: 20
+  p101_forced_state: 0
+
+diagnosis:
+  lit101_residual_threshold: 5.0
+  lit101_temporal_residual_threshold: 2.0
+  lit101_cusum_threshold: 8.0
+  lit101_ewma_threshold: 2.2
+  lit101_slope_threshold: 0.18
+  lit101_multistep_threshold: 3.0
+  lit101_replay_flat_std_threshold: 0.22
+  lit101_replay_expected_change_threshold: 1.2
+  lit101_temporal_consecutive_steps: 3
+  fit101_high_threshold: 0.55
+  fit101_residual_threshold: 0.45
+  history_window: 12
+  actuator_memory_window: 60
+  severe_untrusted_count: 3
+
+planner:
+  horizon: 5
+  lambda_hazard: 9.0
+  lambda_safety: 18.0
+  lambda_production: 1.6
+  lambda_action: 0.35
+  lambda_uncertainty: 2.0
+  lambda_recovery: 2.8
+  target_mid: 52.5
+  attack_belief_threshold: 0.45
+  min_persistent_steps: 3
+  recovery_exit_steps: 5
+  warmup_steps: 8
+  severe_hazard_margin: 0.9
+
+hazard:
+  w_causal: 0.22
+  w_logic: 0.20
+  w_margin: 0.28
+  w_criticality: 0.12
+  w_attack: 0.18
+
+shield:
+  hard_min: 10.0
+  hard_max: 90.0
+  soft_min: 20.0
+  soft_max: 80.0
+  pump_empty_level: 15.0
+  mv_open_high_level: 85.0
+  emergency_drain_level: 78.0
+  severe_hazard_level_low: 8.0
+  severe_hazard_level_high: 92.0
+  severe_untrusted_count: 3
+
+world_model:
+  type: "gru"
+  enabled: true
+  hidden_dim: 48
+  hidden_size: 64
+  learning_rate: 0.001
+  epochs: 8
+  quick_epochs: 3
+  batch_size: 64
+  sequence_length: 20
+  train_rollouts: 60
+  train_steps: 70
+  validation_fraction: 0.2
+  rollout_horizon: 5
+
+swat:
+  data_dir: "dataset/SWat"
+  normal_file: null
+  attack_file: null
+  attack_list_file: null
+  required_tags: ["LIT101", "FIT101", "MV101", "P101", "P102"]
+  optional_tags: []
+  label_column: null
+  timestamp_column: null
+  train_on_attack: false
+  max_rows_quick: 20000
+  max_rows_full: null
+  actuator_mapping:
+    MV101:
+      open_values: []
+      closed_values: []
+    P101:
+      on_values: []
+      off_values: []
+    P102:
+      on_values: []
+      off_values: []
+  calibration:
+    normal_quantile_safe_low: 0.05
+    normal_quantile_safe_high: 0.95
+    normal_quantile_target_low: 0.35
+    normal_quantile_target_high: 0.65
+  diagnosis:
+    ewma_alpha: 0.1
+    cusum_threshold: 5.0
+    residual_window: 20
+    persistence_steps: 3
+  counterfactual:
+    horizon: 60
+    pre_attack_context: 60
+  hybrid:
+    seeds: [0, 1, 2, 3, 4]
+
+experiment:
+  seeds: [0, 1, 2, 3, 4]
+  steps: 180
+  quick_steps: 70
+  consecutive_safe_steps: 5
+  methods:
+    - B1_FULL_SHUTDOWN
+    - B2_RULE_BASED_FALLBACK
+    - B3_ANOMALY_PRIORITY_RECOVERY
+    - B4_WORLD_MODEL_NO_TRUST
+    - B5_PROPOSED
+  attacks:
+    - normal
+    - LIT101_FDI
+    - LIT101_DRIFT
+    - LIT101_REPLAY
+    - MV101_STUCK_OPEN
+    - MV101_STUCK_CLOSED
+    - P101_FORCED_OFF
+    - COMBINED_LIT101_FDI_MV101_OPEN

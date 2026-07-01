@@ -1,0 +1,31 @@
+# Local environments
+.venv/
+venv/
+env/
+
+# Datasets and large local artifacts
+dataset/
+Dataset/
+
+# Generated experiment outputs
+outputs/*
+!outputs/.gitkeep
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build/package artifacts
+build/
+dist/
+*.egg-info/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
