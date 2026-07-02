@@ -1,0 +1,11 @@
+attack_id,target_tags_original,target_tags_normalized,p1_target_tag,original_start_time,original_end_time,loaded_start_time,loaded_end_time,start_index,end_index,duration,alignment_status,alignment_status_detail,exclude_from_eval
+1,MV-101,MV101,MV101,2015-12-28 10:29:14,10:44:53,2015-12-22 16:00:00,2016-01-02 14:59:59,498554,499493,940,inside_loaded_range,inside_loaded_range: clipped_to_loaded_timestamp_range,False
+2,P-102,P102,P102,2015-12-28 10:51:08,10:58:30,2015-12-22 16:00:00,2016-01-02 14:59:59,499868,500310,443,inside_loaded_range,inside_loaded_range: clipped_to_loaded_timestamp_range,False
+3,LIT-101,LIT101,LIT101,2015-12-28 11:22:00,11:28:22,2015-12-22 16:00:00,2016-01-02 14:59:59,501720,502102,383,inside_loaded_range,inside_loaded_range: clipped_to_loaded_timestamp_range,False
+21,"MV-101, LIT-101",MV101LIT101,LIT101,2015-12-29 18:30:00,18:42:00,2015-12-22 16:00:00,2016-01-02 14:59:59,613799,614519,721,inside_loaded_range,inside_loaded_range: clipped_to_loaded_timestamp_range,False
+26,"P-101, LIT-301",P101LIT301,P101,2015-12-30 17:04:56,17:29:00,2015-12-22 16:00:00,2016-01-02 14:59:59,695095,696539,1445,inside_loaded_range,inside_loaded_range: clipped_to_loaded_timestamp_range,False
+30,"LIT-101, P-101, MV-201",LIT101P101MV201,LIT101,2015-12-31 15:47:40,16:07:10,2015-12-22 16:00:00,2016-01-02 14:59:59,776859,778029,1171,inside_loaded_range,inside_loaded_range: clipped_to_loaded_timestamp_range,False
+33,LIT-101,LIT101,LIT101,2016-01-01 14:21:12,14:28:35,2015-12-22 16:00:00,2016-01-02 14:59:59,857990,858433,444,inside_loaded_range,inside_loaded_range: clipped_to_loaded_timestamp_range,False
+34,P-101,P101,P101,2016-01-01 17:12:40,17:14:20,2015-12-22 16:00:00,2016-01-02 14:59:59,868278,868378,101,inside_loaded_range,inside_loaded_range: clipped_to_loaded_timestamp_range,False
+35,P-101; P-102,P101P102,P101,2016-01-01 17:18:56,17:26:56,2015-12-22 16:00:00,2016-01-02 14:59:59,868654,869134,481,inside_loaded_range,inside_loaded_range: clipped_to_loaded_timestamp_range,False
+36,LIT-101,LIT101,LIT101,2016-01-01 22:16:01,22:25:00,2015-12-22 16:00:00,2016-01-02 14:59:59,886479,887018,540,inside_loaded_range,inside_loaded_range: clipped_to_loaded_timestamp_range,False

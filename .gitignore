@@ -4,12 +4,17 @@ venv/
 env/
 
 # Datasets and large local artifacts
+dataset
 dataset/
 Dataset/
 
 # Generated experiment outputs
 outputs/*
 !outputs/.gitkeep
+!outputs/synthetic/
+!outputs/synthetic/**
+!outputs/real_swat/
+!outputs/real_swat/**
 
 # Python caches
 __pycache__/

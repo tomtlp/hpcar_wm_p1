@@ -1,0 +1,2 @@
+evaluation_type,p1_attack_detection_precision,p1_attack_detection_recall,p1_attack_detection_f1,p1_attack_detection_auc,p1_false_alarm_rate_on_normal,p1_windows_evaluated,n_p1_windows_total,n_p1_windows_valid,n_p1_windows_excluded,valid_window_ids,excluded_window_ids
+p1_offline_log_diagnosis,0.01207295358860433,0.2175738491527965,0.022876512553703047,0.6772462536632378,0.14050059242038196,1,10,10,0,1|2|3|21|26|30|33|34|35|36,

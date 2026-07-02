@@ -1,0 +1,2 @@
+evaluation_type,lit_min_normal,lit_max_normal,safe_low,safe_high,target_low,target_high,hazard_low,hazard_high,sim_level_min,sim_level_max,sim_inflow_open,sim_p101_outflow,nominal_outflow,nominal_outflow_high
+real_calibrated_simulation,120.6237,1000.0,494.7025,812.6498,515.3887,587.6138,362.796055,944.556245,362.796055,944.556245,0.40511313366486684,0.44933921571440266,0.44933921571440266,0.674008823571604

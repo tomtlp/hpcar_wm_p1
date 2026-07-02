@@ -1,0 +1,2 @@
+detected_label_column,unique_values,counts,attack_ratio,first_attack_index,last_attack_index
+Normal/Attack,"[""Normal"", ""Attack""]","{""Normal"": 892107, ""Attack"": 54621}",0.05769450148300251,498554,941989

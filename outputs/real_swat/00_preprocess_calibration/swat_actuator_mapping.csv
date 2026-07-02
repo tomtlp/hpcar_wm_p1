@@ -1,0 +1,4 @@
+tag,raw_unique_values,inferred_binary_mapping,evidence_used,warning
+MV101,"[""2.0"", ""0.0"", ""1.0""]","{""2.0"": 1, ""0.0"": 0, ""1.0"": 0}",higher_mean_FIT101,
+P101,"[""2"", ""1""]","{""1"": 0, ""2"": 1}",binary_numeric_or_process_effect,
+P102,"[""1"", ""2""]","{""1"": 0, ""2"": 1}",binary_numeric_or_process_effect,

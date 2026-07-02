@@ -1,0 +1,2 @@
+attack_id,window_id,target_tag,status,inferred_root_cause,proposed_selected_action,proposed_predicted_cost,r0_predicted_cost,proposed_reduces_predicted_hazard_vs_r0,limitations
+2,2,P102,valid,P102,R0_KEEP_CURRENT,-4.914386699999991,-4.914386699999991,False,"Counterfactual rollout uses a calibrated local model, not closed-loop real actuation."

@@ -1,0 +1,4 @@
+path,extension,size,rows,columns,role,timestamp_column,label_column,p1_columns,warning
+dataset/SWat/csv/attack.csv,.csv,15162438,200,53,attack_csv, Timestamp,Normal/Attack,"{""LIT101"": ""LIT101"", ""FIT101"": ""FIT101"", ""MV101"": "" MV101"", ""P101"": ""P101"", ""P102"": ""P102""}",
+dataset/SWat/csv/merged.csv,.csv,426855390,200,53,unknown, Timestamp,Normal/Attack,"{""LIT101"": ""LIT101"", ""FIT101"": ""FIT101"", ""MV101"": "" MV101"", ""P101"": ""P101"", ""P102"": ""P102""}",
+dataset/SWat/csv/normal.csv,.csv,402374633,200,53,normal_csv, Timestamp,Normal/Attack,"{""LIT101"": ""LIT101"", ""FIT101"": ""FIT101"", ""MV101"": "" MV101"", ""P101"": ""P101"", ""P102"": ""P102""}",
